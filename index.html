@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TWIWCS Importer for Phaser — Demo</title>
+  <!-- Phaser 3 from CDN (client-side, no build step) -->
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+  <script src="src/TwiwcsImporter.js"></script>
+  <style>
+    :root { --bg:#0a0a12; --teal:#00d4aa; --panel:#14141f; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: #e8e8f0;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex; flex-direction: column; align-items: center;
+      min-height: 100vh; padding: 16px;
+    }
+    h1 { color: var(--teal); font-size: 20px; margin: 8px 0 4px; }
+    p.sub { color: #888; margin: 0 0 14px; font-size: 13px; }
+    #toolbar {
+      display: flex; gap: 10px; align-items: center; margin-bottom: 12px;
+      background: var(--panel); padding: 10px 14px; border-radius: 8px;
+      border: 1px solid #222;
+    }
+    button, label.filebtn {
+      background: var(--teal); color: #04221c; border: none; cursor: pointer;
+      font-weight: 600; padding: 8px 14px; border-radius: 6px; font-size: 13px;
+    }
+    button:hover, label.filebtn:hover { filter: brightness(1.1); }
+    label.filebtn { display: inline-block; }
+    input[type=file] { display: none; }
+    #status { color: #aaa; font-size: 12px; min-height: 16px; }
+    #game { border: 1px solid #222; border-radius: 8px; overflow: hidden; }
+    #drop {
+      position: fixed; inset: 0; background: rgba(0,212,170,0.12);
+      border: 3px dashed var(--teal); display: none;
+      align-items: center; justify-content: center; font-size: 24px;
+      color: var(--teal); pointer-events: none; z-index: 10;
+    }
+    #drop.active { display: flex; }
+  </style>
+</head>
+<body>
+  <h1>TWIWCS Importer for Phaser</h1>
+  <p class="sub">Decodes a .twiwcs archive entirely client-side and rebuilds it as Phaser sprites.</p>
+
+  <div id="toolbar">
+    <button id="reload">Load example archive</button>
+    <label class="filebtn">Open .twiwcs file<input type="file" id="file" accept=".twiwcs,.json"></label>
+    <span id="status">ready</span>
+  </div>
+
+  <div id="game"></div>
+  <div id="drop">Drop a .twiwcs file to import</div>
+
+  <script>
+    const GAME_WIDTH = 960;
+    const GAME_HEIGHT = 640;
+    const EXAMPLE_URL = 'examples/cyberpunk-project-001.twiwcs';
+
+    function setStatus(msg) {
+      document.getElementById('status').textContent = msg;
+      console.log('[demo]', msg);
+    }
+
+    class ImporterScene extends Phaser.Scene {
+      constructor() { super('ImporterScene'); }
+
+      create() {
+        this.cameras.main.setBackgroundColor('#0a0a12');
+        this.currentContainer = null;
+        // Allow drag to pan, wheel to zoom, so big layouts are inspectable.
+        this.setupCameraControls();
+        // Load the bundled example on first paint.
+        this.loadFromUrl(EXAMPLE_URL);
+      }
+
+      async loadFromUrl(url) {
+        setStatus('fetching ' + url + ' ...');
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const archive = await res.json();
+          await this.importArchive(archive, url);
+        } catch (e) {
+          setStatus('ERROR: ' + e.message);
+          console.error(e);
+        }
+      }
+
+      async importArchive(archive, label) {
+        setStatus('decoding textures...');
+        // Tear down any previously imported scene + its textures.
+        if (this.currentContainer) {
+          this.currentContainer.destroy(true);
+          this.currentContainer = null;
+        }
+        // Use a fresh key prefix per import so re-imports never collide.
+        const prefix = 'twiwcs_' + Date.now();
+        const importer = new TwiwcsImporter(this, { keyPrefix: prefix });
+
+        await importer.loadTextures(archive);
+        setStatus('placing sprites...');
+        const { container, sprites } = importer.buildScene(
+          archive, { x: GAME_WIDTH / 2, y: GAME_HEIGHT / 2 }
+        );
+        this.currentContainer = container;
+
+        // Fit the camera so the whole layout is visible.
+        this.frameContainer(container);
+        setStatus('imported "' + (label || 'archive') + '" — ' + sprites.length + ' sprites');
+      }
+
+      // Auto-zoom the camera to fit the imported content.
+      frameContainer(container) {
+        const b = container.getBounds();
+        if (b.width === 0 || b.height === 0) { this.cameras.main.setZoom(1); return; }
+        const pad = 1.15;
+        const zoom = Math.min(GAME_WIDTH / (b.width * pad), GAME_HEIGHT / (b.height * pad), 1);
+        this.cameras.main.setZoom(zoom);
+        this.cameras.main.centerOn(b.centerX, b.centerY);
+      }
+
+      setupCameraControls() {
+        const cam = this.cameras.main;
+        this.input.on('pointermove', (p) => {
+          if (!p.isDown) return;
+          cam.scrollX -= (p.x - p.prevPosition.x) / cam.zoom;
+          cam.scrollY -= (p.y - p.prevPosition.y) / cam.zoom;
+        });
+        this.input.on('wheel', (p, objs, dx, dy) => {
+          const z = cam.zoom * (dy > 0 ? 0.9 : 1.1);
+          cam.setZoom(Phaser.Math.Clamp(z, 0.05, 4));
+        });
+      }
+    }
+
+    const config = {
+      type: Phaser.AUTO,
+      width: GAME_WIDTH,
+      height: GAME_HEIGHT,
+      parent: 'game',
+      backgroundColor: '#0a0a12',
+      scene: [ImporterScene],
+    };
+
+    const game = new Phaser.Game(config);
+
+    function activeScene() { return game.scene.getScene('ImporterScene'); }
+
+    // Toolbar: reload example
+    document.getElementById('reload').addEventListener('click', () => {
+      activeScene().loadFromUrl(EXAMPLE_URL);
+    });
+
+    // Toolbar: open a local .twiwcs file
+    document.getElementById('file').addEventListener('change', (ev) => {
+      const f = ev.target.files[0];
+      if (f) readFile(f);
+      ev.target.value = '';
+    });
+
+    // Drag-and-drop a .twiwcs file anywhere
+    const dropEl = document.getElementById('drop');
+    window.addEventListener('dragover', (e) => { e.preventDefault(); dropEl.classList.add('active'); });
+    window.addEventListener('dragleave', (e) => { if (e.target === document.documentElement) dropEl.classList.remove('active'); });
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropEl.classList.remove('active');
+      const f = e.dataTransfer.files[0];
+      if (f) readFile(f);
+    });
+
+    function readFile(file) {
+      setStatus('reading ' + file.name + ' ...');
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const archive = JSON.parse(reader.result);
+          activeScene().importArchive(archive, file.name);
+        } catch (e) {
+          setStatus('ERROR parsing ' + file.name + ': ' + e.message);
+        }
+      };
+      reader.readAsText(file);
+    }
+  </script>
+</body>
+</html>
