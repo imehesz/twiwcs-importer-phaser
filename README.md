@@ -3,7 +3,7 @@
 Import `.twiwcs` scene archives into a running [Phaser 3](https://phaser.io) game
 as ready-to-use sprites — entirely client-side, no build step or server required.
 
-[TWIWCS (The World Is What You Call It)](https://github.com/imehesz/twiwcs) is a
+[TWIWCS (Two-Wall Isometric World Terrain Constructor Kit)](https://mehesz.net/sites/@twiwcs/) is a
 portable scene format that bundles sprite sheets (PNG), frame metadata
 (TexturePacker JSON), and layout/position data into a single `.twiwcs` JSON file.
 This importer decodes that archive and reconstructs the scene at runtime.
